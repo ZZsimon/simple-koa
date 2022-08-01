@@ -17,8 +17,10 @@ class Promise {
     }
 
     reject(err) {
-        this.err = err
-        this.rejectCbs.forEach(fn => fn(this.err))
+        setTimeout(() => {
+            this.err = err
+            this.rejectCbs.forEach(fn => fn(this.err))
+        }, 0);
     }
 
     then(resolveFun, rejectFun) {
