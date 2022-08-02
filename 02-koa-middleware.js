@@ -18,11 +18,13 @@ const mid1 = async (ctx, next) => {
     await next()
     console.log(6);
 }
+
 const mid2 = async (ctx, next) => {
     console.log(2);
     await next()
     console.log(5);
 }
+
 const mid3 = async (ctx, next) => {
     console.log(3);
     await next()

@@ -1,61 +1,98 @@
-const http = require('http')
+const http = require('http');
+const Emitter = require('events');
+const compose = require('./05-compose');
 
-class Koa {
+/**
+ * 通用上下文
+ */
+const context = {
+    _body: null,
+
+    get body() {
+        return this._body;
+    },
+
+    set body(val) {
+        this._body = val;
+        this.res.end(this._body);
+    }
+};
+
+class SimpleKoa extends Emitter {
     constructor() {
-        this.middleware = []
-        this.context = Object.create({})
-        this.title = 'title1111'
+        super();
+        this.middleware = [];
+        this.context = Object.create(context);
     }
+
+    /**
+     * 服务事件监听
+     * @param {*} args
+     */
     listen(...args) {
-        /**
-         *  http.createServer的第一个参数是一个回调函数
-         *  每当有请求进来的时候，就会运行这个回调函数
-         */
-        const server = http.createServer(this.callback.bind(this))
-        server.listen(...args)
+        const server = http.createServer(this.callback());
+        return server.listen(...args);
     }
 
-    use(middleware) {
-        this.middleware.push(middleware)
-    }
-
-    callback(req, res) {
-
-        const isIconReq = req.url === "/favicon.ico"
-        if (isIconReq) {
-            res.end()
-            return
+    /**
+     * 注册使用中间件
+     * @param {Function} fn
+     */
+    use(fn) {
+        if (typeof fn === 'function') {
+            this.middleware.push(fn);
         }
-        this.middleware.forEach((_middleware, idx) => {
-            _middleware(this.context);
+    }
 
-            if (idx + 1 >= this.middleware.length) {
-                res.write(`
-                <p>${this.context.title1}</p>
-                <p>${this.context.title2}</p>
-                <p>${this.context.title3}</p>
-                `);
-                res.end()
-            }
-        });
+    /**
+     * 中间件总回调方法
+     */
+    callback() {
+
+        if (this.listeners('error').length === 0) {
+            this.on('error', this.onerror);
+        }
+
+        const handleRequest = (req, res) => {
+            let context = this.createContext(req, res);
+            let middleware = this.middleware;
+            // 执行中间件
+            compose(middleware)(context).catch(err => this.onerror(err))
+        };
+        return handleRequest;
+    }
+
+    /**
+     * 异常处理监听
+     * @param {EndOfStreamError} err
+     */
+    onerror(err) {
+        console.log(err);
+    }
+
+    /**
+     * 创建通用上下文
+     * @param {Object} req
+     * @param {Object} res
+     */
+    createContext(req, res) {
+        let context = Object.create(this.context);
+        context.req = req;
+        context.res = res;
+        return context;
     }
 }
 
-const app = new Koa()
+module.exports = SimpleKoa;
 
-app.use((ctx) => {
-    ctx.title1 = 'title1'
-    console.log(1);
-})
-app.use((ctx) => {
-    ctx.title2 = 'title2'
-    console.log(2);
-})
-app.use((ctx) => {
-    ctx.title3 = 'title3'
-    console.log(3);
-})
 
-app.listen(1009, () => {
-    console.log(`服务启动成功，地址是 http://localhost:1009`);
-})
+const app = new SimpleKoa();
+const PORT = 3001;
+
+app.use(async ctx => {
+    ctx.body = '<p>this is a body</p>';
+});
+
+app.listen(PORT, () => {
+    console.log(`the web server is starting at port ${PORT}`);
+});

@@ -1,163 +1,102 @@
-
-// 支持then中写异步代码
+//完整的实现
 class MPromise {
     static PENDING = 'pending';
     static RESOLVED = 'resolved';
     static REJECTED = 'rejected';
 
+    callbacks = [];
+    state = MPromise.PENDING;
+    value = null;
+
     constructor(fn) {
-        this.status = MPromise.PENDING
-        this.resolveCbs = []
-        this.rejectCbs = []
-        this.value = null
-        this.err = null
-        this.resolve = this.resolve.bind(this)
-        this.reject = this.reject.bind(this)
-        fn(this.resolve, this.reject)
+        fn(this.resolve.bind(this));
     }
 
-    resolve(data) {
-        if (this.status === MPromise.PENDING) {
-            this.status = MPromise.RESOLVED
-            this.value = data
-            this.resolveCbs.forEach(resolveCb => resolveCb(this.value))
+    then(callback) {
+        // 如果不返回Promise，直接this.callbacks.push(callback)就可以了
+        const p = new MPromise(resolve => {
+            this.handle({
+                thenCb: callback,
+                thenPResolve: resolve,
+            });
+        });
+        return p
+    }
+
+    handle(obj) {
+        const {
+            thenCb,
+            thenPResolve
+        } = obj
+        if (this.state === MPromise.PENDING) {
+            this.callbacks.push(obj);
+            return;
         }
+        const ret = thenCb(this.value);
+        thenPResolve(ret);
     }
 
-    reject(err) {
-        if (this.status === MPromise.PENDING) {
-            this.status = MPromise.REJECTED
-            this.err = err
-            this.rejectCbs.forEach(fn => fn(this.err))
+    // value是then回调函数返回的值
+    resolve(value) {
+        // 如果这个值是Promise
+        if (value instanceof MPromise) {
+            const then = value.then;
+            // 下面这行代码实现的效果：
+            // 将更改当前then创建的Promsie的resolve方法 注册到了 `当前then的回调函数返回的Promise` 的回调队列中
+            // 那，想要 `当前then创建的Promsie` 状态改变，必须执行 `当前then的回调函数返回的Promise`的回调队列中的函数
+            // 想要执行 `当前then的回调函数返回的Promise`的回调队列中的函数，必须更改 `当前then的回调函数返回的Promise`的状态
+            // 总结：只有then的回调函数返回的Primise执行完毕了，才会更改then的Promise状态，从而继续往后面走
+            then.call(value, this.resolve.bind(this));
+            return;
         }
-    }
 
-    then(resolveFun, rejectFun) {
-        const thenP = new MPromise((resolve, reject) => {
-            this.resolveCbs.push((value) => {
-                const x = resolveFun(value)
-                // 其实也很简单，当 x 是一个 Promise 对象的时候，我们需要进行等待，
-                // 直到返回的 Promise 状态变化的时候，再去执行之后的 then 函数，
-                resolvePromise(thenP, x, resolve, reject);
-            })
-            this.rejectCbs.push((value) => {
-                const x = rejectFun(value)
-                resolvePromise(thenP, x, resolve, reject);
-            })
-        })
-        return thenP
+        this.state = MPromise.RESOLVED;
+        this.value = value
+        this.callbacks.forEach(obj => this.handle(obj));
     }
 }
 
-/**
- * 
- * @param {then方法返回的Promise实例} thenP 
- * @param {then方法有两个参数，resolve或者reject，x就是他们的返回值} x 
- * @param {thenP的resolve方法} resolve 
- * @param {thenP的resolve方法} reject 
- * 
- * 当 x 是 Promise 的时，并且他的状态是 Pending 状态，
- * 如果 x 执行成功，那么就去递归调用 resolvePromise 这个函数，
- * 将 x 执行结果作为 resolvePromise 第二个参数传入；
- * 
- * 如果执行失败，则直接调用 promise2 的 reject 方法。
- * 
- */
-function resolvePromise(thenP, x, resolve, reject) {
-    if (x instanceof MPromise) {
-        const then = x.then;
-        if (x.status == MPromise.PENDING) {
-            then.call(x, y => {
-                resolvePromise(promise2, y, resolve, reject);
-            }, err => {
-                reject(err);
-            })
-        } else {
-            x.then(resolve, reject);
-        }
-    } else {
-        resolve(x);
-    }
-}
-
-
-
-const fun = (resolve, reject) => {
+const p = new MPromise((resolve, reject) => {
     setTimeout(() => {
         const data = '1'
+        // 此时，传入resolve的值是 “1”
+        // 直接开始执行 this.handle(obj)
+        // 开始执行cb，返回了p11
+
+        // 再次执行resolve方法，此时，传入resolve的值是 “p11”
+        // 此时的resolve方法属于p1，也就是第一个then方法创建的Promise
+        // 此时的this表示p1
+
+        // 执行 then.call(value, this.resolve.bind(this));
+        //      value：表示 p11
+        //      也就是调用then方法，then中的this表示p11，其实就是给p11注册回调函数
+        //      this.resolve表示p1的resolve方法
+        //      也就是说，给p11注册的回调函数是当前then的resolve方法
+        //      那么，如果p11状态不更改，p1一直都不会更改状态
+        //      当p11更改了状态后，就会调用resolve('then1')
+        //      然后再次调用 之前通过p11的then注册的回调函数，就是刚刚注册的 `当前then的resolve方法`
+        //      一旦调用 `当前then的resolve方法`，就会更改p1的状态，然后就会调用第二个then方法
         resolve(data)
     }, 1000);
-}
+})
 
-const p1 = new MPromise(fun)
-
-p1.then((res) => {
-    console.log(res);
-    const p11 = new Promise((resolve) => {
+p.then((res) => {
+    console.log(res, 'res1')
+    const p11 = new MPromise((resolve) => {
         setTimeout(() => {
             resolve('then1')
         }, 1000);
     });
     return p11
 }).then((res) => {
-    console.log(res);
-    const p13 = new Promise((resolve) => {
+    console.log(res, 'res2')
+    const p13 = new MPromise((resolve) => {
         setTimeout(() => {
             resolve('then2')
         }, 1000);
     });
     return p13
 }).then((res) => {
-    console.log(res);
+    console.log(res, 'res3')
     return 'then3';
 })
-
-
-/**
- * 1.开始：
- *      创建p1，`异步任务1` 挂起，
- *      执行then1函数，创建p2，返回p2
- *      执行then2函数，创建p3，返回p3
- *      执行then3函数，创建p4，返回p4
- *
- *      p1、p2、p3、p4都处于pendding
- *
- *
- * 2.p1异步执行完后，处理p1的回调函数，也就是then1的回调
-       (value) => {
-            const x = resolveFun(value)
-            resolvePromise(p2, x, resolve, reject);
-        }
-
-    先执行resolveFun，创建了 p11 ，返回p11，p11处于 pendding
-    然后，执行了resolvePromise方法，
-        resolvePromise(p2, p11, resolve, reject);
-    
-    p11处于pendding，于是，执行：
-        then.call(x, y => {
-            resolvePromise(thenP, y, resolve, reject);
-        })
-        立即执行p11的then方法，创建了p12，返回p12，p12处于pendding
-        但是注册的函数推到了p11的回调队列中。
-
-    1s后，p11的resolve方法执行了，开始处理p11的回调函数，也就是
-        y => {
-            resolvePromise(thenP, y, resolve, reject);
-        }
-    y是 resolve方法带过来的值 “then1”
-    再次执行resolvePromise方法，此时，x参数的实参是 “then1”，
-    因此立即执行 resolve函数，修改了
-    
-
- * 3.执行了p2的resolve方法后，处理p2的回调函数，也就是then2的回调
-
-    先执行resolveFun，打印 'then1' ，返回了 "then2"，x相当于 "then2"，
-    然后，执行了p3的resolve方法
-
- * 4.执行了p3的resolve方法后，处理p3的回调函数，也就是then3的回调
-
-    先执行resolveFun，打印 'then2' ，返回了 "then3"，x相当于 "then3"，
-    然后，执行了p4的resolve方法，p4没有回调函数，结束！！！
-
- */
-
