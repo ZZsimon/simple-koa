@@ -29,17 +29,26 @@ app.use(async (ctx, next) => {
 
     // 没有 await 的话，这个Promise异步任务在当前这个时间循环中，不会执行
     // 而catch error中间件只能捕获和它处于一个事件循环中的错误代码
-    await new Promise((resolve, reject) => {
-        setTimeout(async () => {
-            reject('出现错误')
-        }, 1000);
-    })
-    console.log(5);
-    await next()
-    console.log(6);
-    ctx.body = 'success'
+    await testAsyncFun()
+
+    // await new Promise((resolve, reject) => {
+    //     setTimeout(async () => {
+    //         reject('出现错误')
+    //     }, 1000);
+    // })
+    // console.log(5);
+    // await next()
+    // console.log(6);
+    // ctx.body = 'success'
 
 });
+
+async function testAsyncFun() {
+    // async的方法会返回Promise实例
+    // throw关键字 会改变Promise实例的状态
+    throw new Error('errorrr')
+}
+
 
 // app.use(async (ctx, next) => {
 //     console.log(5);
